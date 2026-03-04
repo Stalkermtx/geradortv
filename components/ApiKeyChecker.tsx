@@ -57,9 +57,9 @@ const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ onKeyValid }) => {
         </div>
         
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-white">Connect Google Cloud</h2>
+          <h2 className="text-2xl font-bold text-white">Conectar Google Cloud</h2>
           <p className="text-zinc-400 text-sm leading-relaxed">
-            High-definition 4K generation requires a paid API key from a Google Cloud Project. 
+            A geração em alta definição 4K requer uma chave de API paga de um Projeto Google Cloud.
           </p>
         </div>
 
@@ -68,12 +68,12 @@ const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ onKeyValid }) => {
           disabled={isLoading}
           className="w-full group relative inline-flex items-center justify-center px-6 py-3 text-base font-semibold text-zinc-950 transition-all duration-200 bg-gradient-to-r from-yellow-400 to-yellow-500 rounded-lg hover:from-yellow-300 hover:to-yellow-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 focus:ring-offset-zinc-900"
         >
-          {isLoading ? 'Checking...' : 'Select Billing Project'}
+          {isLoading ? 'Verificando...' : 'Selecionar Projeto de Faturamento'}
           <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
         </button>
 
         <p className="text-xs text-zinc-600">
-          See <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-yellow-600 hover:text-yellow-500 underline">billing documentation</a> for details.
+          Veja a <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-yellow-600 hover:text-yellow-500 underline">documentação de faturamento</a> para detalhes.
         </p>
       </div>
     </div>

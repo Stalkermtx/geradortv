@@ -13,9 +13,9 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageUrl, loading, error })
       <div className="w-full aspect-square md:aspect-video rounded-2xl glass-panel border border-zinc-700/50 flex flex-col items-center justify-center text-center p-8 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-tr from-yellow-500/5 to-purple-500/5 animate-pulse" />
         <Loader2 className="w-12 h-12 text-yellow-500 animate-spin mb-4 relative z-10" />
-        <h3 className="text-lg font-medium text-white relative z-10">Crafting Masterpiece</h3>
+        <h3 className="text-lg font-medium text-white relative z-10">Gerando a Imagem</h3>
         <p className="text-sm text-zinc-400 mt-2 max-w-xs relative z-10">
-          Generating high-fidelity 4K assets. This may take a moment due to complex ray-tracing simulation...
+          Gerando a Imagem em 4K de alta. Isso pode levar um momento devido à simulação complexa de ray-tracing... ConexTv
         </p>
       </div>
     );
@@ -24,7 +24,7 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageUrl, loading, error })
   if (error) {
     return (
       <div className="w-full aspect-video rounded-2xl glass-panel border border-red-500/20 flex flex-col items-center justify-center p-8 text-center bg-red-500/5">
-        <div className="text-red-400 font-medium text-lg mb-2">Generation Failed</div>
+        <div className="text-red-400 font-medium text-lg mb-2">Falha na Geração</div>
         <p className="text-zinc-400 text-sm max-w-md">{error}</p>
       </div>
     );
@@ -36,7 +36,7 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageUrl, loading, error })
         <div className="w-16 h-16 rounded-full bg-zinc-800 mb-4 flex items-center justify-center">
           <Maximize2 className="w-6 h-6 text-zinc-500" />
         </div>
-        <p className="text-zinc-400 text-sm">Preview area. Your generated image will appear here.</p>
+        <p className="text-zinc-400 text-sm">Área de pré-visualização. Sua imagem gerada aparecerá aqui.</p>
       </div>
     );
   }
@@ -52,7 +52,7 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageUrl, loading, error })
       <div className="relative z-10 w-full h-full flex items-center justify-center p-4">
         <img 
           src={imageUrl} 
-          alt="Generated Logo" 
+          alt="Logotipo Gerado" 
           className="max-h-[70vh] w-auto object-contain rounded-lg shadow-2xl"
         />
       </div>
@@ -64,7 +64,7 @@ const ImageDisplay: React.FC<ImageDisplayProps> = ({ imageUrl, loading, error })
           className="flex items-center gap-2 px-5 py-2.5 bg-white text-black font-semibold rounded-full hover:bg-zinc-200 transition-colors shadow-lg"
         >
           <Download className="w-4 h-4" />
-          Download Asset
+          Baixar Imagem
         </a>
       </div>
     </div>
