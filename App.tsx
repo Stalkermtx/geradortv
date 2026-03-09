@@ -5,7 +5,7 @@ import Login from './pages/Login';
 import Admin from './pages/Admin';
 import Subscription from './pages/Subscription';
 import Generator from './pages/Generator';
-
+import LandingPage from './pages/LandingPage';
 import Profile from './pages/Profile';
 
 // Protected Route Component
@@ -67,7 +67,7 @@ const AppRoutes: React.FC = () => {
         } 
       />
       
-      <Route path="/" element={<Navigate to="/generator" replace />} />
+      <Route path="/" element={<LandingPage />} />
     </Routes>
   );
 };

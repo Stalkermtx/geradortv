@@ -8,10 +8,9 @@ interface ApiKeyCheckerProps {
 
 const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ onKeyValid }) => {
   const [hasKey, setHasKey] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const verifyKey = async () => {
-    setIsLoading(true);
     try {
       const valid = await checkApiKey();
       setHasKey(valid);
@@ -20,8 +19,6 @@ const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ onKeyValid }) => {
       }
     } catch (e) {
       console.error("Failed to check API key", e);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -31,27 +28,22 @@ const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ onKeyValid }) => {
   }, []);
 
   const handleConnect = async () => {
+    setIsLoading(true);
     try {
       await promptForApiKey();
-      // Wait a moment for the selection to potentially propagate, then re-check
-      // The guidelines say: "assume the key selection was successful... Do not add delay".
-      // However, re-checking state is safer for React rendering flow.
       await verifyKey();
-      // Force valid call just in case verify fails due to race condition, 
-      // but only if we trust the user completed the flow.
-      // For better UX, we'll rely on verifyKey returning true eventually or user clicking again.
-      // But adhering to: "assume the key selection was successful... proceed to the app"
-      onKeyValid(); 
     } catch (e) {
       console.error("Failed to select key", e);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   if (hasKey) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md">
-      <div className="max-w-md w-full mx-4 p-8 rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl text-center space-y-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm transition-all duration-500">
+      <div className="max-w-md w-full mx-4 p-8 rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl text-center space-y-6 animate-in fade-in zoom-in duration-300">
         <div className="mx-auto w-16 h-16 rounded-full bg-yellow-500/10 flex items-center justify-center border border-yellow-500/20">
           <Key className="w-8 h-8 text-yellow-500" />
         </div>

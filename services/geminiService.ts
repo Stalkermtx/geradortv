@@ -13,6 +13,9 @@ Resolução: 8K, extremamente nítido, sem distorções, espaçamento proporcion
 Referência de estilo: o logotipo original anexado (mesmo conceito geral, mas mais moderno, limpo e premium).`;
 
 export const checkApiKey = async (): Promise<boolean> => {
+  if (import.meta.env.VITE_GEMINI_API_KEY) {
+    return true;
+  }
   if (window.aistudio) {
     return await window.aistudio.hasSelectedApiKey();
   }
@@ -32,71 +35,96 @@ export const generateImage = async (
   aspectRatio: AspectRatio,
   resolution: ImageResolution
 ): Promise<string> => {
-  // Always create a new instance to ensure the latest API Key is used
-  const apiKey = process.env.API_KEY;
+  // Try to use the selected key, otherwise fall back to the environment key
+  // The platform injects process.env.API_KEY dynamically
+  // @ts-ignore
+  const apiKey = (typeof process !== 'undefined' && process.env && process.env.API_KEY) || import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("API Key not found. Please select a project.");
+    throw new Error("Chave API não encontrada. Por favor, selecione um projeto.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
-      contents: {
-        parts: [
-          {
-            text: prompt,
-          },
-        ],
-      },
-      config: {
-        imageConfig: {
-          aspectRatio: aspectRatio,
-          imageSize: resolution,
+  
+  let attempt = 0;
+  const maxRetries = 3;
+  
+  while (attempt < maxRetries) {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-image-preview',
+        contents: {
+          parts: [
+            {
+              text: prompt,
+            },
+          ],
         },
-      },
-    });
+        config: {
+          imageConfig: {
+            aspectRatio: aspectRatio,
+            imageSize: resolution,
+          },
+        },
+      });
 
-    let imageUrl = '';
-    const candidates = response.candidates;
-    if (candidates && candidates.length > 0) {
-      const parts = candidates[0].content.parts;
-      for (const part of parts) {
-        if (part.inlineData) {
-          const base64EncodeString = part.inlineData.data;
-          // Determine mimeType if available, defaulting to png if not explicitly returned in a way we can parse easily
-          // The API usually returns proper mimeType in inlineData
-          const mimeType = part.inlineData.mimeType || 'image/png';
-          imageUrl = `data:${mimeType};base64,${base64EncodeString}`;
-          break; // Found the image, stop searching
+      let imageUrl = '';
+      const candidates = response.candidates;
+      if (candidates && candidates.length > 0) {
+        const parts = candidates[0].content.parts;
+        for (const part of parts) {
+          if (part.inlineData) {
+            const base64EncodeString = part.inlineData.data;
+            const mimeType = part.inlineData.mimeType || 'image/png';
+            imageUrl = `data:${mimeType};base64,${base64EncodeString}`;
+            break; 
+          }
         }
       }
-    }
 
-    if (!imageUrl) {
-      throw new Error("No image data found in response");
-    }
+      if (!imageUrl) {
+        throw new Error("Nenhum dado de imagem encontrado na resposta");
+      }
 
-    return imageUrl;
+      return imageUrl;
 
-  } catch (error: any) {
-    console.error("Gemini API Error:", error);
-    // Enhance error message if it's a permission issue or quota
-    if (error.message && error.message.includes("403")) {
-      throw new Error("Access denied. Please check your API key permissions and ensure the API is enabled.");
+    } catch (error: any) {
+      console.error(`Gemini API Error (Attempt ${attempt + 1}/${maxRetries}):`, error);
+      
+      // Handle 503 Service Unavailable (High Demand)
+      if (error.message && (error.message.includes("503") || error.message.includes("high demand"))) {
+        attempt++;
+        if (attempt < maxRetries) {
+          // Wait with exponential backoff: 2s, 4s, 8s
+          const delay = 2000 * Math.pow(2, attempt - 1);
+          console.log(`Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        } else {
+           throw new Error("O sistema está com alta demanda momentânea. Por favor, aguarde alguns instantes e tente novamente.");
+        }
+      }
+
+      // Enhance error message if it's a permission issue or quota
+      if (error.message && error.message.includes("403")) {
+        throw new Error("Acesso negado. Verifique as permissões da sua chave API e se a API está ativada.");
+      }
+      
+      throw error;
     }
-    throw error;
   }
+  
+  throw new Error("Falha desconhecida na geração da imagem.");
 };
 
 export const generateVideo = async (
   imageUrl: string,
-  prompt: string
+  prompt: string,
+  aspectRatio: AspectRatio
 ): Promise<string> => {
-  const apiKey = process.env.API_KEY;
+  // @ts-ignore
+  const apiKey = (typeof process !== 'undefined' && process.env && process.env.API_KEY) || import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("API Key not found. Please select a project.");
+    throw new Error("Chave API não encontrada. Por favor, selecione um projeto.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -104,10 +132,18 @@ export const generateVideo = async (
   // Extract base64 data and mimeType from data URL
   const matches = imageUrl.match(/^data:(.+);base64,(.+)$/);
   if (!matches || matches.length !== 3) {
-    throw new Error("Invalid image data URL");
+    throw new Error("Dados de imagem inválidos");
   }
   const mimeType = matches[1];
   const imageBytes = matches[2];
+
+  // Map AspectRatio to supported Veo ratios (16:9 or 9:16)
+  let veoAspectRatio: '16:9' | '9:16' = '16:9';
+  if (aspectRatio === '9:16' || aspectRatio === '3:4') {
+    veoAspectRatio = '9:16';
+  } else {
+    veoAspectRatio = '16:9';
+  }
 
   try {
     let operation = await ai.models.generateVideos({
@@ -120,7 +156,7 @@ export const generateVideo = async (
       config: {
         numberOfVideos: 1,
         resolution: '720p',
-        aspectRatio: '16:9',
+        aspectRatio: veoAspectRatio,
       }
     });
 
@@ -131,12 +167,12 @@ export const generateVideo = async (
     }
 
     if (operation.error) {
-        throw new Error(`Video generation failed: ${operation.error.message}`);
+        throw new Error(`Falha na geração do vídeo: ${operation.error.message}`);
     }
 
     const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
     if (!videoUri) {
-      throw new Error("No video URI returned");
+      throw new Error("Nenhuma URI de vídeo retornada");
     }
 
     const videoResponse = await fetch(videoUri, {
@@ -147,7 +183,7 @@ export const generateVideo = async (
     });
 
     if (!videoResponse.ok) {
-        throw new Error(`Failed to fetch video: ${videoResponse.statusText}`);
+        throw new Error(`Falha ao buscar vídeo: ${videoResponse.statusText}`);
     }
 
     const videoBlob = await videoResponse.blob();

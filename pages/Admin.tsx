@@ -1,13 +1,26 @@
 import React, { useState } from 'react';
 import { useAuth, User, PlanType, MessageTemplate } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Users, CreditCard, Activity, Search, Edit2, Trash2, CheckCircle, XCircle, Save, MessageSquare, Send, Plus, Copy, LayoutDashboard, Settings, UserCog, Megaphone } from 'lucide-react';
+import { Users, CreditCard, Activity, Search, Edit2, Trash2, CheckCircle, XCircle, Save, MessageSquare, Send, Plus, Copy, LayoutDashboard, Settings, UserCog, Megaphone, Image as ImageIcon, ExternalLink } from 'lucide-react';
 
 const Admin: React.FC = () => {
-  const { users, updateUserStatus, updateUser, plans, updatePlan, templates, saveTemplate, deleteTemplate } = useAuth();
+  const { users, updateUserStatus, updateUser, deleteUser, plans, updatePlan, templates, saveTemplate, deleteTemplate, generations } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'marketing'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'marketing' | 'generations'>('dashboard');
   const navigate = useNavigate();
+
+  // Activation State
+  const [activatingUser, setActivatingUser] = useState<User | null>(null);
+  const [selectedPlanForActivation, setSelectedPlanForActivation] = useState<PlanType>('pro');
+
+  // Create User State
+  const [showCreateUserModal, setShowCreateUserModal] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('123456');
+  const [newUserWhatsapp, setNewUserWhatsapp] = useState('');
+  const [newUserPlan, setNewUserPlan] = useState<PlanType>('pro');
+  const { createUser } = useAuth();
 
   // Marketing State
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
@@ -22,8 +35,48 @@ const Admin: React.FC = () => {
     (user.name && user.name.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const handleStatusChange = (userId: string, newStatus: 'active' | 'inactive') => {
-    updateUserStatus(userId, newStatus);
+  const handleStatusChange = (userId: string, newStatus: 'active' | 'inactive' | 'expired') => {
+    if (newStatus === 'active') {
+      const user = users.find(u => u.id === userId);
+      if (user) {
+        setActivatingUser(user);
+        setSelectedPlanForActivation(user.planId || 'pro');
+      }
+    } else {
+      updateUserStatus(userId, newStatus);
+    }
+  };
+
+  const confirmActivation = () => {
+    if (activatingUser) {
+      updateUserStatus(activatingUser.id, 'active', selectedPlanForActivation);
+      setActivatingUser(null);
+    }
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    if (window.confirm('Tem certeza que deseja excluir este usuário? Esta ação não pode ser desfeita.')) {
+      deleteUser(userId);
+    }
+  };
+
+  const handleCreateUser = () => {
+    if (!newUserEmail || !newUserName || !newUserPassword) {
+      alert("Nome, Email e Senha são obrigatórios.");
+      return;
+    }
+    
+    const success = createUser(newUserEmail, newUserPassword, newUserName, newUserWhatsapp, newUserPlan);
+    
+    if (success) {
+      setShowCreateUserModal(false);
+      setNewUserName('');
+      setNewUserEmail('');
+      setNewUserPassword('123456');
+      setNewUserWhatsapp('');
+      setNewUserPlan('pro');
+      alert(`Usuário criado com sucesso! Senha definida: ${newUserPassword}`);
+    }
   };
 
   const handlePlanUpdate = (planId: PlanType, field: string, value: any) => {
@@ -156,6 +209,7 @@ const Admin: React.FC = () => {
         <div className="flex flex-wrap gap-2 bg-zinc-900/30 p-1.5 rounded-xl border border-zinc-800/50 w-fit backdrop-blur-sm">
           <NavTab id="dashboard" label="Dashboard Geral" icon={LayoutDashboard} />
           <NavTab id="marketing" label="Marketing & Envios" icon={Megaphone} />
+          <NavTab id="generations" label="Histórico de Gerações" icon={ImageIcon} />
         </div>
 
         {/* DASHBOARD TAB (Contains Stats, Plans, and Users) */}
@@ -254,6 +308,18 @@ const Admin: React.FC = () => {
                         </div>
                       )}
 
+                      {plan.id === 'credits' && (
+                         <div className="space-y-2">
+                          <label className="text-xs text-zinc-500 uppercase font-semibold tracking-wider">Quantidade de Créditos</label>
+                          <input 
+                            type="number" 
+                            value={plan.credits || 0}
+                            onChange={(e) => handlePlanUpdate(plan.id, 'credits', parseInt(e.target.value))}
+                            className="w-full bg-black/40 border border-zinc-800 rounded-lg px-4 py-2.5 text-sm focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500/50 outline-none transition-all"
+                          />
+                        </div>
+                      )}
+
                       {plan.id === 'enterprise' && (
                          <div className="space-y-2">
                           <label className="text-xs text-zinc-500 uppercase font-semibold tracking-wider">WhatsApp de Vendas</label>
@@ -298,6 +364,14 @@ const Admin: React.FC = () => {
                     className="bg-transparent border-none text-white placeholder-zinc-500 focus:ring-0 w-full md:w-64 outline-none text-sm"
                   />
                 </div>
+                
+                <button
+                  onClick={() => setShowCreateUserModal(true)}
+                  className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-green-900/20"
+                >
+                  <Plus className="w-4 h-4" />
+                  Novo Usuário
+                </button>
               </div>
               
               <div className="bg-zinc-900/30 border border-zinc-800 rounded-xl overflow-hidden shadow-xl shadow-black/20 backdrop-blur-sm">
@@ -307,6 +381,7 @@ const Admin: React.FC = () => {
                       <tr>
                         <th className="px-6 py-5">Usuário</th>
                         <th className="px-6 py-5">Contato (WhatsApp)</th>
+                        <th className="px-6 py-5">Senha</th>
                         <th className="px-6 py-5">Status</th>
                         <th className="px-6 py-5">Expira em</th>
                         <th className="px-6 py-5 text-right">Ações</th>
@@ -345,15 +420,29 @@ const Admin: React.FC = () => {
                             </div>
                           </td>
                           <td className="px-6 py-4">
+                            <div className="flex items-center gap-2 bg-black/20 rounded-lg px-3 py-1.5 border border-zinc-800/50 w-fit">
+                              <span className="text-zinc-500 text-xs">PW</span>
+                              <input 
+                                type="text"
+                                value={user.password || ''}
+                                onChange={(e) => handleUserUpdate(user.id, 'password', e.target.value)}
+                                placeholder="Nova senha"
+                                className="bg-transparent border-none p-0 text-xs w-24 focus:ring-0 text-zinc-300 placeholder-zinc-700"
+                              />
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
                             <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium capitalize border ${
                               user.subscriptionStatus === 'active' 
                                 ? 'bg-green-500/10 text-green-400 border-green-500/20' 
-                                : 'bg-red-500/10 text-red-400 border-red-500/20'
+                                : user.subscriptionStatus === 'expired'
+                                  ? 'bg-orange-500/10 text-orange-400 border-orange-500/20'
+                                  : 'bg-red-500/10 text-red-400 border-red-500/20'
                             }`}>
                               <span className={`w-1.5 h-1.5 rounded-full mr-2 ${
-                                user.subscriptionStatus === 'active' ? 'bg-green-400' : 'bg-red-400'
+                                user.subscriptionStatus === 'active' ? 'bg-green-400' : user.subscriptionStatus === 'expired' ? 'bg-orange-400' : 'bg-red-400'
                               }`}></span>
-                              {user.subscriptionStatus === 'active' ? 'Ativo' : 'Inativo'}
+                              {user.subscriptionStatus === 'active' ? 'Ativo' : user.subscriptionStatus === 'expired' ? 'Expirado' : 'Inativo'}
                             </span>
                           </td>
                           <td className="px-6 py-4 font-mono text-xs">
@@ -375,7 +464,7 @@ const Admin: React.FC = () => {
                                 <button 
                                   onClick={() => handleStatusChange(user.id, 'active')}
                                   className="p-2 hover:bg-green-500/10 text-zinc-400 hover:text-green-500 rounded-lg transition-colors"
-                                  title="Ativar Assinatura (Manual)"
+                                  title={user.subscriptionStatus === 'expired' ? "Reativar Assinatura" : "Ativar Assinatura"}
                                 >
                                   <CheckCircle className="w-4 h-4" />
                                 </button>
@@ -383,7 +472,11 @@ const Admin: React.FC = () => {
                               <button className="p-2 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg transition-colors">
                                 <Edit2 className="w-4 h-4" />
                               </button>
-                              <button className="p-2 hover:bg-red-500/10 text-zinc-400 hover:text-red-500 rounded-lg transition-colors">
+                              <button 
+                                onClick={() => handleDeleteUser(user.id)}
+                                className="p-2 hover:bg-red-500/10 text-zinc-400 hover:text-red-500 rounded-lg transition-colors"
+                                title="Excluir Usuário"
+                              >
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
@@ -608,6 +701,94 @@ const Admin: React.FC = () => {
           </div>
         )}
 
+        {/* GENERATIONS TAB */}
+        {activeTab === 'generations' && (
+          <div className="space-y-6 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-500/10 rounded-lg">
+                  <ImageIcon className="w-5 h-5 text-purple-500" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">Histórico de Gerações</h2>
+                  <p className="text-sm text-zinc-500">Visualize todos os prompts e imagens geradas pelos usuários.</p>
+                </div>
+              </div>
+              <div className="bg-zinc-900/50 border border-zinc-800 p-2 rounded-lg flex items-center gap-3">
+                <Search className="w-4 h-4 text-zinc-500 ml-2" />
+                <input
+                  type="text"
+                  placeholder="Buscar por prompt ou email..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="bg-transparent border-none text-white placeholder-zinc-500 focus:ring-0 w-64 outline-none text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {generations
+                .filter(gen => 
+                  gen.prompt.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                  gen.userEmail.toLowerCase().includes(searchTerm.toLowerCase())
+                )
+                .map((gen) => (
+                <div key={gen.id} className="bg-zinc-900/30 border border-zinc-800 rounded-xl overflow-hidden hover:border-zinc-700 transition-all group">
+                  <div className="aspect-video bg-black relative overflow-hidden">
+                    <img 
+                      src={gen.imageUrl} 
+                      alt={gen.prompt} 
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    />
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <a 
+                        href={gen.imageUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 bg-white text-black rounded-full text-xs font-bold flex items-center gap-2 hover:scale-105 transition-transform"
+                      >
+                        <ExternalLink className="w-3 h-3" /> Ver Original
+                      </a>
+                    </div>
+                    <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-2 py-1 rounded text-[10px] text-zinc-300 font-mono border border-white/10">
+                      {new Date(gen.timestamp).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-400">
+                        {gen.userEmail.substring(0, 2).toUpperCase()}
+                      </div>
+                      <span className="text-xs text-zinc-400 truncate">{gen.userEmail}</span>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Prompt</p>
+                      <p className="text-sm text-zinc-300 line-clamp-3 italic">"{gen.prompt}"</p>
+                    </div>
+                    <div className="pt-3 border-t border-zinc-800/50 flex justify-between items-center">
+                      <span className="text-[10px] text-zinc-600 font-mono">{gen.model}</span>
+                      <button 
+                        onClick={() => navigator.clipboard.writeText(gen.prompt)}
+                        className="text-zinc-500 hover:text-white transition-colors"
+                        title="Copiar Prompt"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            {generations.length === 0 && (
+              <div className="text-center py-20 text-zinc-500">
+                <ImageIcon className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                <p>Nenhuma geração registrada ainda.</p>
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
       
       <footer className="w-full border-t border-white/5 bg-black/50 backdrop-blur-xl py-6 mt-12">
@@ -617,6 +798,155 @@ const Admin: React.FC = () => {
           </p>
         </div>
       </footer>
+
+      {/* Create User Modal */}
+      {showCreateUserModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-md w-full space-y-6 shadow-2xl">
+            <div>
+              <h3 className="text-xl font-bold text-white">Criar Novo Usuário</h3>
+              <p className="text-zinc-400 text-sm mt-1">
+                Preencha os dados para criar um novo acesso.
+              </p>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs text-zinc-500 uppercase font-semibold">Nome</label>
+                <input
+                  type="text"
+                  value={newUserName}
+                  onChange={(e) => setNewUserName(e.target.value)}
+                  className="w-full bg-black/40 border border-zinc-800 rounded-lg px-4 py-2.5 text-sm text-white focus:border-green-500 outline-none transition-all"
+                  placeholder="Nome do Cliente"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-xs text-zinc-500 uppercase font-semibold">Email</label>
+                <input
+                  type="email"
+                  value={newUserEmail}
+                  onChange={(e) => setNewUserEmail(e.target.value)}
+                  className="w-full bg-black/40 border border-zinc-800 rounded-lg px-4 py-2.5 text-sm text-white focus:border-green-500 outline-none transition-all"
+                  placeholder="cliente@email.com"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs text-zinc-500 uppercase font-semibold">Senha Inicial</label>
+                <input
+                  type="text"
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  className="w-full bg-black/40 border border-zinc-800 rounded-lg px-4 py-2.5 text-sm text-white focus:border-green-500 outline-none transition-all"
+                  placeholder="Senha"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs text-zinc-500 uppercase font-semibold">WhatsApp</label>
+                <input
+                  type="text"
+                  value={newUserWhatsapp}
+                  onChange={(e) => setNewUserWhatsapp(e.target.value)}
+                  className="w-full bg-black/40 border border-zinc-800 rounded-lg px-4 py-2.5 text-sm text-white focus:border-green-500 outline-none transition-all"
+                  placeholder="55..."
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs text-zinc-500 uppercase font-semibold">Plano Inicial</label>
+                <select
+                  value={newUserPlan}
+                  onChange={(e) => setNewUserPlan(e.target.value as PlanType)}
+                  className="w-full bg-black/40 border border-zinc-800 rounded-lg px-4 py-2.5 text-sm text-white focus:border-green-500 outline-none transition-all appearance-none"
+                >
+                  {plans.map(plan => (
+                    <option key={plan.id} value={plan.id}>{plan.name} - {plan.price}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-zinc-800">
+              <button 
+                onClick={() => setShowCreateUserModal(false)}
+                className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleCreateUser}
+                className="px-6 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-green-900/20 flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Criar Usuário
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Activation Modal */}
+      {activatingUser && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-md w-full space-y-6 shadow-2xl">
+            <div>
+              <h3 className="text-xl font-bold text-white">Ativar Usuário</h3>
+              <p className="text-zinc-400 text-sm mt-1">
+                Selecione o plano para ativar o usuário <span className="text-white font-medium">{activatingUser.name || activatingUser.email}</span>.
+              </p>
+              <p className="text-xs text-zinc-500 mt-2 bg-zinc-800/50 p-2 rounded border border-zinc-800">
+                A assinatura será válida por 30 dias a partir de hoje.
+              </p>
+            </div>
+            
+            <div className="space-y-3">
+              <label className="text-xs text-zinc-500 uppercase font-semibold">Selecione o Plano</label>
+              <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-700">
+                {plans.map(plan => (
+                  <button
+                    key={plan.id}
+                    onClick={() => setSelectedPlanForActivation(plan.id)}
+                    className={`flex items-center justify-between p-3 rounded-lg border transition-all text-left group ${
+                      selectedPlanForActivation === plan.id
+                        ? 'bg-yellow-500/10 border-yellow-500'
+                        : 'bg-zinc-800/30 border-zinc-700 hover:bg-zinc-800 hover:border-zinc-600'
+                    }`}
+                  >
+                    <div>
+                      <span className={`font-medium block ${selectedPlanForActivation === plan.id ? 'text-yellow-500' : 'text-zinc-300 group-hover:text-white'}`}>
+                        {plan.name}
+                      </span>
+                      <span className="text-xs text-zinc-500">{plan.features[0]}</span>
+                    </div>
+                    <span className={`text-sm font-bold ${selectedPlanForActivation === plan.id ? 'text-yellow-500' : 'text-zinc-400'}`}>
+                      {plan.price}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-zinc-800">
+              <button 
+                onClick={() => setActivatingUser(null)}
+                className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmActivation}
+                className="px-6 py-2 bg-green-500 hover:bg-green-400 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-green-500/20 flex items-center gap-2"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Confirmar Ativação
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
