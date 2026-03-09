@@ -116,6 +116,88 @@ export const generateImage = async (
   throw new Error("Falha desconhecida na geração da imagem.");
 };
 
+export const enhanceImagePrompt = async (prompt: string): Promise<string> => {
+  // @ts-ignore
+  const apiKey = (typeof process !== 'undefined' && process.env && process.env.API_KEY) || import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("Chave API não encontrada. Por favor, selecione um projeto.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const systemInstruction = `Você é um especialista em engenharia de prompt para geração de imagens por IA (Midjourney, DALL-E, Imagen).
+Sua tarefa é pegar o prompt do usuário e melhorá-lo para que fique 100% organizado, detalhado e otimizado para gerar a melhor imagem possível.
+Não adicione conversas, apenas retorne o prompt melhorado.
+Estruture o prompt com: Assunto principal, Detalhes do ambiente/fundo, Estilo artístico, Iluminação, Cores e Qualidade/Resolução.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-pro-preview',
+      contents: `Melhore este prompt para geração de imagem: "${prompt}"`,
+      config: {
+        systemInstruction,
+        temperature: 0.7,
+      }
+    });
+
+    return response.text || prompt;
+  } catch (error) {
+    console.error("Error enhancing image prompt:", error);
+    throw new Error("Falha ao melhorar o prompt da imagem.");
+  }
+};
+
+export const generateVideoPrompt = async (imageUrl: string): Promise<string> => {
+  // @ts-ignore
+  const apiKey = (typeof process !== 'undefined' && process.env && process.env.API_KEY) || import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("Chave API não encontrada. Por favor, selecione um projeto.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  // Extract base64 data and mimeType from data URL
+  const matches = imageUrl.match(/^data:(.+);base64,(.+)$/);
+  if (!matches || matches.length !== 3) {
+    throw new Error("Dados de imagem inválidos");
+  }
+  const mimeType = matches[1];
+  const imageBytes = matches[2];
+
+  const systemInstruction = `Você é um diretor de arte e especialista em prompts para geração de vídeos por IA (Sora, Veo, Runway).
+Sua tarefa é analisar a imagem fornecida e criar um prompt de vídeo profissional de 8 segundos que dê vida a essa imagem.
+O prompt deve descrever o movimento da câmera, a animação dos elementos na cena, a evolução da iluminação e a atmosfera geral.
+Não adicione conversas ou explicações, apenas retorne o prompt de vídeo em português.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-pro-preview',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: imageBytes,
+              mimeType: mimeType,
+            },
+          },
+          {
+            text: "Crie um prompt de vídeo profissional de 8 segundos baseado nesta imagem.",
+          },
+        ],
+      },
+      config: {
+        systemInstruction,
+        temperature: 0.7,
+      }
+    });
+
+    return response.text || "Um vídeo cinematográfico com movimento de câmera suave e iluminação dinâmica.";
+  } catch (error) {
+    console.error("Error generating video prompt:", error);
+    throw new Error("Falha ao gerar o prompt do vídeo.");
+  }
+};
+
 export const generateVideo = async (
   imageUrl: string,
   prompt: string,

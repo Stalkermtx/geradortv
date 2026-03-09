@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { generateImage, generateVideo, DEFAULT_PROMPT } from '../services/geminiService';
+import { generateImage, generateVideo, DEFAULT_PROMPT, generateVideoPrompt } from '../services/geminiService';
 import { AspectRatio, ImageResolution } from '../types';
 import ImageDisplay from '../components/ImageDisplay';
 import Controls from '../components/Controls';
@@ -9,8 +9,6 @@ import Features from '../components/Features';
 import { Sparkles, Zap, Play, Loader2, LogOut, User, ShieldCheck, Download, History, Trash2, Clock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { storage } from '../lib/firebase';
-import { ref, uploadString, getDownloadURL, uploadBytes } from 'firebase/storage';
 
 interface HistoryItem {
   id: string;
@@ -30,11 +28,14 @@ const Generator: React.FC = () => {
   const [videoAspectRatio, setVideoAspectRatio] = useState<AspectRatio>('16:9');
   const [videoScript, setVideoScript] = useState<string>('');
   const [resolution, setResolution] = useState<ImageResolution>('4K');
+  const [outputFormat, setOutputFormat] = useState<'PNG' | 'JPEG'>('PNG');
+  const [transparentBackground, setTransparentBackground] = useState<boolean>(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoLoading, setVideoLoading] = useState<boolean>(false);
+  const [generatingVideoPrompt, setGeneratingVideoPrompt] = useState<boolean>(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
   // Load history from server on mount
@@ -184,24 +185,24 @@ const Generator: React.FC = () => {
       // Force Low resolution for Basic plan
       const effectiveResolution = user?.planId === 'basic' ? '1K' : resolution;
       
-      let url = await generateImage(prompt, aspectRatio, effectiveResolution);
+      let finalPrompt = prompt;
+      if (transparentBackground) {
+        finalPrompt += "\n\n[MUITO IMPORTANTE: Gere a imagem com um fundo puramente branco (#FFFFFF) e sólido, sem sombras, sem cenário e sem gradientes, para que possa ser facilmente recortado como PNG transparente.]";
+      }
+      
+      let url = await generateImage(finalPrompt, aspectRatio, effectiveResolution);
       
       // Apply watermark if Basic plan
       if (user?.planId === 'basic') {
         url = await addWatermarkToImage(url);
       }
 
-      // Upload to Firebase Storage
-      const imageRef = ref(storage, `images/${user?.id}_${Date.now()}.png`);
-      await uploadString(imageRef, url, 'data_url');
-      const firebaseUrl = await getDownloadURL(imageRef);
-
-      setImageUrl(firebaseUrl);
+      setImageUrl(url);
       incrementUsage();
-      logGeneration(prompt, firebaseUrl, 'gemini-3.1-flash-image-preview');
+      logGeneration(prompt, url, 'gemini-3.1-flash-image-preview');
       addToHistory({
         type: 'image',
-        url: firebaseUrl,
+        url: url,
         prompt: prompt,
         aspectRatio: aspectRatio
       });
@@ -210,6 +211,23 @@ const Generator: React.FC = () => {
       setError(err.message || "Ocorreu um erro inesperado durante a geração.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGenerateVideoPrompt = async () => {
+    if (!imageUrl || !apiKeyValid) return;
+    
+    setGeneratingVideoPrompt(true);
+    setError(null);
+    
+    try {
+      const generatedPrompt = await generateVideoPrompt(imageUrl);
+      setVideoScript(generatedPrompt);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Falha ao gerar o prompt do vídeo.");
+    } finally {
+      setGeneratingVideoPrompt(false);
     }
   };
 
@@ -226,17 +244,11 @@ const Generator: React.FC = () => {
       
       const url = await generateVideo(imageUrl, promptToUse, videoAspectRatio);
       
-      // Upload to Firebase Storage
-      const videoBlob = await fetch(url).then(r => r.blob());
-      const videoRef = ref(storage, `videos/${user?.id}_${Date.now()}.mp4`);
-      await uploadBytes(videoRef, videoBlob);
-      const firebaseUrl = await getDownloadURL(videoRef);
-
-      setVideoUrl(firebaseUrl);
-      logGeneration(promptToUse, firebaseUrl, 'veo-3.1-fast-generate-preview');
+      setVideoUrl(url);
+      logGeneration(promptToUse, url, 'veo-3.1-fast-generate-preview');
       addToHistory({
         type: 'video',
-        url: firebaseUrl,
+        url: url,
         prompt: videoScript.trim() ? "Roteiro Personalizado" : "Intro Animada",
         aspectRatio: videoAspectRatio
       });
@@ -362,6 +374,10 @@ const Generator: React.FC = () => {
               setAspectRatio={setAspectRatio}
               resolution={resolution}
               setResolution={setResolution}
+              outputFormat={outputFormat}
+              setOutputFormat={setOutputFormat}
+              transparentBackground={transparentBackground}
+              setTransparentBackground={setTransparentBackground}
               onGenerate={handleGenerate}
               loading={loading}
             />
@@ -421,12 +437,23 @@ const Generator: React.FC = () => {
                    </div>
 
                    <div className="space-y-2">
-                      <label className="text-xs text-zinc-400 font-medium uppercase tracking-wider">Roteiro do Vídeo (Opcional)</label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs text-zinc-400 font-medium uppercase tracking-wider">Roteiro do Vídeo (Opcional)</label>
+                        <button
+                          onClick={handleGenerateVideoPrompt}
+                          disabled={generatingVideoPrompt || videoLoading}
+                          className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 border border-yellow-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Gerar prompt profissional com IA"
+                        >
+                          {generatingVideoPrompt ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                          Gerar Prompt Profissional
+                        </button>
+                      </div>
                       <textarea
                         value={videoScript}
                         onChange={(e) => setVideoScript(e.target.value)}
-                        placeholder="Descreva como você quer a animação (ex: zoom lento, brilho intenso, partículas flutuando...)"
-                        rows={2}
+                        placeholder="Descreva como você quer a animação (ex: zoom lento, brilho intenso, partículas flutuando...) ou clique em 'Gerar Prompt Profissional' para a IA criar um para você."
+                        rows={3}
                         className="w-full bg-zinc-900/50 border border-zinc-700 text-zinc-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-yellow-500/50 focus:border-yellow-500/50 outline-none transition-all resize-none"
                       />
                    </div>

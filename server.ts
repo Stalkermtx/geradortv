@@ -4,8 +4,6 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
-import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,20 +13,6 @@ const PORT = 3000;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Increase limit for base64 images just in case
-
-const firebaseConfig = {
-  apiKey: "AIzaSyA6555MqKTD3JCLe4E5en6Wi3WJDpBmj9g",
-  authDomain: "flixyapp-b51d2.firebaseapp.com",
-  projectId: "flixyapp-b51d2",
-  storageBucket: "flixyapp-b51d2.firebasestorage.app",
-  messagingSenderId: "823032292680",
-  appId: "1:823032292680:web:f99e2d0c8c5e01fd1d3f7d",
-  measurementId: "G-1FQ3BYF8NH"
-};
-
-const firebaseApp = initializeApp(firebaseConfig);
-const db = getFirestore(firebaseApp);
-const DB_DOC = doc(db, "conextv", "data");
 
 // Default data structure
 const defaultData = {
@@ -144,40 +128,42 @@ Por favor, nos envie o comprovante de pagamento assim que possível.
   generations: [],
 };
 
+const DATA_FILE = path.join(__dirname, "data.json");
+
+// Initialize data file if it doesn't exist
+if (!fs.existsSync(DATA_FILE)) {
+  fs.writeFileSync(DATA_FILE, JSON.stringify(defaultData, null, 2));
+}
+
 // Helper to read data
-const readData = async () => {
+const readData = () => {
   try {
-    const snap = await getDoc(DB_DOC);
-    if (snap.exists()) {
-      return snap.data();
-    }
-    // Initialize if not exists
-    await setDoc(DB_DOC, defaultData);
-    return defaultData;
+    const rawData = fs.readFileSync(DATA_FILE, "utf-8");
+    return JSON.parse(rawData);
   } catch (error) {
-    console.error("Error reading data from Firestore:", error);
+    console.error("Error reading data file:", error);
     return defaultData;
   }
 };
 
 // Helper to write data
-const writeData = async (data: any) => {
+const writeData = (data: any) => {
   try {
-    await setDoc(DB_DOC, data);
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
   } catch (error) {
-    console.error("Error writing data to Firestore:", error);
+    console.error("Error writing data file:", error);
   }
 };
 
 // API Routes
-app.get("/api/data", async (req, res) => {
-  const data = await readData();
+app.get("/api/data", (req, res) => {
+  const data = readData();
   res.json(data);
 });
 
-app.post("/api/data", async (req, res) => {
+app.post("/api/data", (req, res) => {
   const newData = req.body;
-  await writeData(newData);
+  writeData(newData);
   res.json({ success: true });
 });
 
