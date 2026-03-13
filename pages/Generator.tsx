@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { generateImage, generateVideo, DEFAULT_PROMPT, generateVideoPrompt } from '../services/geminiService';
+import React, { useState, useEffect, useRef } from 'react';
+import { generateImage, generateVideo, DEFAULT_PROMPT, generateVideoPrompt, generateScript, generateVideoFromText, promptForApiKey } from '../services/geminiService';
 import { AspectRatio, ImageResolution } from '../types';
-import ImageDisplay from '../components/ImageDisplay';
+import ImageDisplay, { ImageDisplayRef } from '../components/ImageDisplay';
 import Controls from '../components/Controls';
+import ScriptGenerator from '../components/ScriptGenerator';
+import VoiceRecorder from '../components/VoiceRecorder';
+import WhatsAppCampaign from '../components/WhatsAppCampaign';
 import ApiKeyChecker from '../components/ApiKeyChecker';
 import FAQ from '../components/FAQ';
 import Features from '../components/Features';
-import { Sparkles, Zap, Play, Loader2, LogOut, User, ShieldCheck, Download, History, Trash2, Clock } from 'lucide-react';
+import { Sparkles, Zap, Play, Loader2, LogOut, User, ShieldCheck, Download, History, Trash2, Clock, Film, Key, Image as ImageIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -20,55 +23,58 @@ interface HistoryItem {
 }
 
 const Generator: React.FC = () => {
-  const { user, logout, incrementUsage, logGeneration } = useAuth();
+  const { user, logout, incrementUsage, logGeneration, generations } = useAuth();
   const navigate = useNavigate();
   const [apiKeyValid, setApiKeyValid] = useState<boolean>(false);
   const [prompt, setPrompt] = useState<string>(DEFAULT_PROMPT);
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1');
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1138:1280');
   const [videoAspectRatio, setVideoAspectRatio] = useState<AspectRatio>('16:9');
   const [videoScript, setVideoScript] = useState<string>('');
   const [resolution, setResolution] = useState<ImageResolution>('4K');
+  const [imageType, setImageType] = useState<'logo' | 'background'>('background');
   const [outputFormat, setOutputFormat] = useState<'PNG' | 'JPEG'>('PNG');
   const [transparentBackground, setTransparentBackground] = useState<boolean>(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [generationTime, setGenerationTime] = useState<number | null>(null);
+  const [videoGenerationTime, setVideoGenerationTime] = useState<number | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoLoading, setVideoLoading] = useState<boolean>(false);
   const [generatingVideoPrompt, setGeneratingVideoPrompt] = useState<boolean>(false);
+  const [scriptResult, setScriptResult] = useState<string | null>(null);
+  const [scriptLoading, setScriptLoading] = useState<boolean>(false);
+  const [sceneVideos, setSceneVideos] = useState<{ prompt: string; url?: string; loading: boolean; error?: string }[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [appMode, setAppMode] = useState<'images' | 'scripts' | 'campaigns'>('images');
+  const imageDisplayRef = useRef<ImageDisplayRef>(null);
 
   // Load history from server on mount
   useEffect(() => {
-    if (user) {
-      fetch('/api/data')
-        .then(res => res.json())
-        .then(data => {
-          let hiddenIds: string[] = [];
-          try {
-            hiddenIds = JSON.parse(localStorage.getItem('hidden_generations') || '[]');
-          } catch (e) {
-            console.error("Failed to parse hidden generations", e);
-          }
+    if (user && generations) {
+      let hiddenIds: string[] = [];
+      try {
+        hiddenIds = JSON.parse(localStorage.getItem('hidden_generations') || '[]');
+      } catch (e) {
+        console.error("Failed to parse hidden generations", e);
+      }
 
-          // Find generations for this user and map them to HistoryItem format
-          const userGenerations = (data.generations || [])
-            .filter((g: any) => g.userId === user.id && !hiddenIds.includes(g.id))
-            .map((g: any) => ({
-              id: g.id,
-              type: g.model.includes('veo') ? 'video' : 'image',
-              url: g.imageUrl,
-              prompt: g.prompt,
-              timestamp: new Date(g.timestamp).getTime(),
-              aspectRatio: '1:1' // Defaulting as it wasn't saved in GenerationHistory
-            }))
-            .sort((a: any, b: any) => b.timestamp - a.timestamp);
-          
-          setHistory(userGenerations);
-        })
-        .catch(err => console.error("Failed to load history from server", err));
+      // Find generations for this user and map them to HistoryItem format
+      const userGenerations = generations
+        .filter((g: any) => g.userId === user.id && !hiddenIds.includes(g.id))
+        .map((g: any) => ({
+          id: g.id,
+          type: g.model.includes('veo') ? 'video' : 'image',
+          url: g.imageUrl,
+          prompt: g.prompt,
+          timestamp: new Date(g.timestamp).getTime(),
+          aspectRatio: '1:1' as AspectRatio // Defaulting as it wasn't saved in GenerationHistory
+        }))
+        .sort((a: any, b: any) => b.timestamp - a.timestamp);
+      
+      setHistory(userGenerations);
     }
-  }, [user]);
+  }, [user, generations]);
 
   useEffect(() => {
     if (user?.subscriptionStatus === 'inactive') {
@@ -154,10 +160,62 @@ const Generator: React.FC = () => {
     });
   };
 
+  const extractLastFrame = async (videoUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.src = videoUrl;
+      video.preload = 'metadata';
+      
+      video.onloadedmetadata = () => {
+        // Seek to almost the end (e.g., 0.1s before the end)
+        video.currentTime = Math.max(0, video.duration - 0.1);
+      };
+      
+      video.onseeked = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/png'));
+        } else {
+          reject(new Error('Failed to get canvas context'));
+        }
+      };
+      
+      video.onerror = (e) => {
+        reject(new Error('Failed to load video'));
+      };
+    });
+  };
+
+  const handleGrabLastFrame = async () => {
+    if (!videoUrl) return;
+    try {
+      setLoading(true);
+      const lastFrameDataUrl = await extractLastFrame(videoUrl);
+      setImageUrl(lastFrameDataUrl);
+      setVideoUrl(null); // Clear the video to show the new image and allow generating a new video
+      setVideoScript(''); // Clear the script for the new scene
+    } catch (err: any) {
+      console.error("Error extracting last frame:", err);
+      setError("Falha ao extrair o último frame do vídeo.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!apiKeyValid) {
        setError("Verificação da chave API necessária.");
        return;
+    }
+
+    if (!prompt.trim()) {
+      setError("Por favor, descreva a imagem que você deseja gerar.");
+      return;
     }
 
     // Check Basic Plan Limits
@@ -180,12 +238,22 @@ const Generator: React.FC = () => {
     setError(null);
     setImageUrl(null);
     setVideoUrl(null);
+    setScriptResult(null);
+    setGenerationTime(null);
+
+    const startTime = Date.now();
 
     try {
       // Force Low resolution for Basic plan
       const effectiveResolution = user?.planId === 'basic' ? '1K' : resolution;
       
       let finalPrompt = prompt;
+      if (imageType === 'background') {
+        finalPrompt += "\n\n[MUITO IMPORTANTE: O cenário deve ser contínuo e natural em toda a imagem. NÃO crie manchas pretas, sombras artificiais, buracos ou espaços escuros no centro. O centro deve apenas mostrar a continuação do fundo (ex: gramado, luzes, arquibancada) sem logotipos e sem escudos. Se o prompt pedir textos, inclua-os normalmente.]";
+      }
+      if (aspectRatio === '1138:1280') {
+        finalPrompt += "\n\n[REGRAS DE FORMATAÇÃO DE TEXTO OBRIGATÓRIAS PARA 1138x1280: 1. A imagem será cortada nas laterais. 2. TODOS os textos e elementos principais DEVEM estar estritamente na ZONA SEGURA CENTRAL (apenas os 60% do meio da imagem). 3. Deixe margens GIGANTESCAS vazias nas laterais, no topo e no fundo. 4. NUNCA coloque texto perto das bordas. 5. Textos longos DEVEM ser quebrados em múltiplas linhas curtas e empilhadas.]";
+      }
       if (transparentBackground) {
         finalPrompt += "\n\n[MUITO IMPORTANTE: Gere a imagem com um fundo puramente branco (#FFFFFF) e sólido, sem sombras, sem cenário e sem gradientes, para que possa ser facilmente recortado como PNG transparente.]";
       }
@@ -196,6 +264,10 @@ const Generator: React.FC = () => {
       if (user?.planId === 'basic') {
         url = await addWatermarkToImage(url);
       }
+
+      const endTime = Date.now();
+      const timeInSeconds = Math.floor((endTime - startTime) / 1000);
+      setGenerationTime(timeInSeconds);
 
       setImageUrl(url);
       incrementUsage();
@@ -221,7 +293,15 @@ const Generator: React.FC = () => {
     setError(null);
     
     try {
-      const generatedPrompt = await generateVideoPrompt(imageUrl);
+      let finalImageUrlToUse = imageUrl;
+      if (imageDisplayRef.current) {
+        const combinedImage = await imageDisplayRef.current.getCombinedImage();
+        if (combinedImage) {
+          finalImageUrlToUse = combinedImage;
+        }
+      }
+      
+      const generatedPrompt = await generateVideoPrompt(finalImageUrlToUse);
       setVideoScript(generatedPrompt);
     } catch (err: any) {
       console.error(err);
@@ -231,18 +311,107 @@ const Generator: React.FC = () => {
     }
   };
 
+  const handleGenerateScript = async (topic: string, platform: string, duration: string, objective: string) => {
+    if (!apiKeyValid) {
+      setError("Verificação da chave API necessária.");
+      return;
+    }
+
+    setScriptLoading(true);
+    setError(null);
+    setScriptResult(null);
+    setImageUrl(null);
+    setVideoUrl(null);
+    setSceneVideos([]);
+
+    try {
+      const script = await generateScript(topic, platform, duration, objective);
+      setScriptResult(script);
+      // Optional: log generation
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Ocorreu um erro ao gerar o roteiro.");
+    } finally {
+      setScriptLoading(false);
+    }
+  };
+
+  const handleGenerateSceneVideos = async () => {
+    if (!scriptResult || !apiKeyValid) return;
+
+    setError(null);
+
+    // Extract vell3 prompts more robustly (handles bolding, capitalization, missing dashes)
+    const regex = /vell3 prompt[^:]*:\s*\*?\*?\s*([^\n]+)/gi;
+    const prompts: string[] = [];
+    let match;
+    while ((match = regex.exec(scriptResult)) !== null) {
+      const promptText = match[1].replace(/\*+$/, '').trim(); // Remove trailing asterisks if any
+      if (promptText) {
+        prompts.push(promptText);
+      }
+    }
+
+    console.log("Extracted prompts:", prompts);
+
+    if (prompts.length === 0) {
+      setError("Nenhum 'vell3 prompt' encontrado no roteiro. Tente gerar o roteiro novamente.");
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    // Initialize state
+    const initialScenes = prompts.map(p => ({ prompt: p, loading: true }));
+    setSceneVideos(initialScenes);
+
+    // Generate videos sequentially to avoid rate limits
+    for (let i = 0; i < prompts.length; i++) {
+      try {
+        const url = await generateVideoFromText(prompts[i], '9:16'); // Defaulting to vertical for shorts
+        setSceneVideos(prev => {
+          const next = [...prev];
+          next[i] = { ...next[i], url, loading: false };
+          return next;
+        });
+      } catch (err: any) {
+        console.error(`Error generating scene ${i + 1}:`, err);
+        setSceneVideos(prev => {
+          const next = [...prev];
+          next[i] = { ...next[i], loading: false, error: err.message || "Erro ao gerar cena" };
+          return next;
+        });
+      }
+    }
+  };
+
   const handleGenerateVideo = async () => {
     if (!imageUrl || !apiKeyValid) return;
     
     setVideoLoading(true);
     setError(null);
+    setVideoGenerationTime(null);
+    
+    const startTime = Date.now();
     
     try {
       const promptToUse = videoScript.trim() 
         ? videoScript 
         : "Um vídeo de introdução curto e animado de 5 segundos. Os elementos metálicos do logotipo ganham vida com efeitos de brilho sutis e um movimento futurista. Adequado para uma introdução de vídeo.";
       
-      const url = await generateVideo(imageUrl, promptToUse, videoAspectRatio);
+      // Get the combined image (with overlay) if available, otherwise fallback to original
+      let finalImageUrlToUse = imageUrl;
+      if (imageDisplayRef.current) {
+        const combinedImage = await imageDisplayRef.current.getCombinedImage();
+        if (combinedImage) {
+          finalImageUrlToUse = combinedImage;
+        }
+      }
+      
+      const url = await generateVideo(finalImageUrlToUse, promptToUse, videoAspectRatio);
+      
+      const endTime = Date.now();
+      const timeInSeconds = Math.floor((endTime - startTime) / 1000);
+      setVideoGenerationTime(timeInSeconds);
       
       setVideoUrl(url);
       logGeneration(promptToUse, url, 'veo-3.1-fast-generate-preview');
@@ -255,6 +424,127 @@ const Generator: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Falha na geração do vídeo.");
+    } finally {
+      setVideoLoading(false);
+    }
+  };
+
+  const handleGenerateImageKwai = async () => {
+    if (!apiKeyValid) {
+       setError("Verificação da chave API necessária.");
+       return;
+    }
+
+    if (!prompt.trim()) {
+      setError("Por favor, descreva a imagem que você deseja gerar.");
+      return;
+    }
+
+    // Check Basic Plan Limits
+    if (user?.planId === 'basic') {
+      if ((user.usageCount || 0) >= 3) {
+        setError("Limite do plano Básico atingido (3 imagens). Atualize para o Pro para continuar gerando.");
+        return;
+      }
+    }
+
+    // Check Credits
+    if (user?.planId === 'credits') {
+      if ((user.credits || 0) <= 0) {
+        setError("Seus créditos acabaram. Adquira um novo pacote para continuar gerando.");
+        return;
+      }
+    }
+    
+    // Set Kwai specific settings
+    setAspectRatio('9:16');
+    setLoading(true);
+    setError(null);
+    setImageUrl(null);
+    setVideoUrl(null);
+    setScriptResult(null);
+    setGenerationTime(null);
+
+    const startTime = Date.now();
+
+    try {
+      // Force Low resolution for Basic plan
+      const effectiveResolution = user?.planId === 'basic' ? '1K' : resolution;
+      
+      let finalPrompt = prompt;
+      if (imageType === 'background') {
+        finalPrompt += "\n\n[MUITO IMPORTANTE: O cenário deve ser contínuo e natural em toda a imagem. NÃO crie manchas pretas, sombras artificiais, buracos ou espaços escuros no centro. O centro deve apenas mostrar a continuação do fundo (ex: gramado, luzes, arquibancada) sem logotipos e sem escudos. Se o prompt pedir textos, inclua-os normalmente.]";
+      }
+      if (transparentBackground) {
+        finalPrompt += "\n\n[MUITO IMPORTANTE: Gere a imagem com um fundo puramente branco (#FFFFFF) e sólido, sem sombras, sem cenário e sem gradientes, para que possa ser facilmente recortado como PNG transparente.]";
+      }
+      
+      // 1. Generate Image
+      let url = await generateImage(finalPrompt, '9:16', effectiveResolution);
+      
+      // Apply watermark if Basic plan
+      if (user?.planId === 'basic') {
+        url = await addWatermarkToImage(url);
+      }
+
+      const endTime = Date.now();
+      const timeInSeconds = Math.floor((endTime - startTime) / 1000);
+      setGenerationTime(timeInSeconds);
+
+      setImageUrl(url);
+      incrementUsage();
+      logGeneration(prompt, url, 'gemini-3.1-flash-image-preview');
+      addToHistory({
+        type: 'image',
+        url: url,
+        prompt: prompt,
+        aspectRatio: '9:16'
+      });
+
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Ocorreu um erro inesperado durante a geração para Kwai.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerateVideoKwai = async () => {
+    if (!imageUrl || !apiKeyValid) return;
+    
+    setVideoAspectRatio('9:16');
+    setVideoLoading(true);
+    setError(null);
+    setVideoGenerationTime(null);
+    
+    try {
+      // 1. Generate Video Prompt
+      setGeneratingVideoPrompt(true);
+      const generatedPrompt = await generateVideoPrompt(imageUrl);
+      setVideoScript(generatedPrompt);
+      setGeneratingVideoPrompt(false);
+
+      // 2. Generate Video
+      const videoStartTime = Date.now();
+      const generatedVideoUrl = await generateVideo(imageUrl, generatedPrompt, '9:16');
+      
+      const videoEndTime = Date.now();
+      const videoTimeInSeconds = Math.floor((videoEndTime - videoStartTime) / 1000);
+      setVideoGenerationTime(videoTimeInSeconds);
+      
+      setVideoUrl(generatedVideoUrl);
+      logGeneration(generatedPrompt, generatedVideoUrl, 'veo-3.1-fast-generate-preview');
+      addToHistory({
+        type: 'video',
+        url: generatedVideoUrl,
+        prompt: "Vídeo Kwai com Narração",
+        aspectRatio: '9:16'
+      });
+
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Ocorreu um erro inesperado durante a geração do vídeo para Kwai.");
+      setGeneratingVideoPrompt(false);
     } finally {
       setVideoLoading(false);
     }
@@ -314,22 +604,62 @@ const Generator: React.FC = () => {
       
       <header className="fixed top-0 left-0 right-0 z-40 border-b border-white/5 bg-black/50 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center shadow-lg shadow-yellow-500/20">
-                <Zap className="w-5 h-5 text-black fill-current" />
-             </div>
-             <h1 className="text-xl font-bold tracking-tight text-white">
-               Conex<span className="text-yellow-500">TV</span> <span className="text-zinc-500 font-light mx-2">|</span> <span className="text-zinc-400 font-normal text-sm">Gerador de Logo</span>
-             </h1>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center shadow-lg shadow-yellow-500/20">
+                  <Zap className="w-5 h-5 text-black fill-current" />
+               </div>
+               <h1 className="text-xl font-bold tracking-tight text-white">
+                 Conex<span className="text-yellow-500">TV</span>
+               </h1>
+            </div>
+            
+            <div className="hidden md:flex items-center gap-1 bg-zinc-900/50 p-1 rounded-lg border border-zinc-800">
+              <button 
+                onClick={() => setAppMode('images')}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${appMode === 'images' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                Imagens
+              </button>
+              <button 
+                onClick={() => setAppMode('scripts')}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${appMode === 'scripts' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                Roteiros & Vídeos
+              </button>
+              <button 
+                onClick={() => setAppMode('campaigns')}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${appMode === 'campaigns' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                Campanhas
+              </button>
+            </div>
           </div>
           
           <div className="flex items-center gap-4">
+            <a 
+              href="https://conextv.com" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="hidden md:flex items-center gap-2 text-xs font-bold text-black bg-yellow-500 hover:bg-yellow-400 px-4 py-2 rounded-full transition-colors shadow-lg shadow-yellow-500/20"
+            >
+              <Sparkles className="w-4 h-4" />
+              ConexTV Brand Generator
+            </a>
             <div className="hidden md:flex items-center gap-2 text-xs font-medium text-zinc-500 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-zinc-800">
               <Sparkles className="w-3 h-3 text-yellow-500" />
               POWERED BY CONEXTV PRO
             </div>
             
             <div className="flex items-center gap-3 pl-4 border-l border-white/10">
+              <button 
+                onClick={() => promptForApiKey()}
+                className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-full transition-colors text-xs font-medium text-zinc-300"
+                title="Alterar Chave API do Google Cloud"
+              >
+                <Key className="w-3 h-3 text-yellow-500" />
+                Chave API
+              </button>
               {user.planId === 'credits' && (
                 <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 rounded-full">
                   <span className="text-xs font-bold text-yellow-500">{user.credits || 0} Créditos</span>
@@ -363,7 +693,12 @@ const Generator: React.FC = () => {
       </header>
 
       <main className="pt-24 pb-12 px-6 max-w-7xl mx-auto flex-grow w-full">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
+        {appMode === 'campaigns' ? (
+          <WhatsAppCampaign history={history} />
+        ) : appMode === 'scripts' ? (
+          <ScriptGenerator apiKeyValid={apiKeyValid} setError={setError} />
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
           
           {/* Left Column: Controls */}
           <div className="lg:col-span-4 space-y-6">
@@ -374,13 +709,20 @@ const Generator: React.FC = () => {
               setAspectRatio={setAspectRatio}
               resolution={resolution}
               setResolution={setResolution}
+              imageType={imageType}
+              setImageType={setImageType}
               outputFormat={outputFormat}
               setOutputFormat={setOutputFormat}
               transparentBackground={transparentBackground}
               setTransparentBackground={setTransparentBackground}
               onGenerate={handleGenerate}
+              onGenerateImageKwai={handleGenerateImageKwai}
+              onGenerateScript={handleGenerateScript}
               loading={loading}
+              scriptLoading={scriptLoading}
             />
+            
+            <VoiceRecorder onAudioGenerated={(url) => console.log('Audio generated:', url)} />
             
             <div className="text-xs text-zinc-600 p-4 border border-dashed border-zinc-800 rounded-xl">
               <strong className="text-zinc-500 block mb-1">Dica Pro:</strong>
@@ -392,8 +734,21 @@ const Generator: React.FC = () => {
           <div className="lg:col-span-8">
             <div className="sticky top-24 space-y-4">
                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Pré-visualização ao Vivo</h2>
+                  <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                    Pré-visualização ao Vivo
+                    {generationTime !== null && imageUrl && (
+                      <span className="text-xs text-yellow-500 lowercase font-normal">
+                        (gerada em {Math.floor(generationTime / 60)}m {generationTime % 60}s)
+                      </span>
+                    )}
+                  </h2>
                   <div className="flex items-center gap-4">
+                    {scriptResult && (
+                      <span className="text-xs text-yellow-500 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"/>
+                        Roteiro Pronto
+                      </span>
+                    )}
                     {imageUrl && (
                       <span className="text-xs text-green-500 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/>
@@ -409,13 +764,86 @@ const Generator: React.FC = () => {
                   </div>
                </div>
                
-               <ImageDisplay 
-                 imageUrl={imageUrl} 
-                 loading={loading} 
-                 error={error} 
-               />
+               {scriptLoading ? (
+                 <div className="w-full aspect-video bg-zinc-900/50 border border-zinc-800 rounded-2xl flex flex-col items-center justify-center gap-4">
+                   <Loader2 className="w-8 h-8 text-yellow-500 animate-spin" />
+                   <span className="text-sm text-zinc-400">Gerando roteiro profissional...</span>
+                 </div>
+               ) : scriptResult ? (
+                 <div className="w-full bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6 overflow-y-auto max-h-[70vh] text-zinc-300 text-sm font-mono whitespace-pre-wrap shadow-2xl flex flex-col gap-4">
+                   <div>{scriptResult}</div>
+                   
+                   <div className="flex items-center gap-3 mt-4 pt-4 border-t border-zinc-800">
+                     <button
+                       onClick={() => navigator.clipboard.writeText(scriptResult)}
+                       className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+                     >
+                       Copiar Roteiro
+                     </button>
+                     <button
+                       onClick={handleGenerateSceneVideos}
+                       disabled={sceneVideos.length > 0 && sceneVideos.some(s => s.loading)}
+                       className="flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-black rounded-lg text-sm font-bold transition-colors shadow-lg shadow-yellow-500/20 disabled:opacity-50"
+                     >
+                       <Play className="w-4 h-4" />
+                       Gerar Vídeos das Cenas
+                     </button>
+                   </div>
 
-               {imageUrl && !videoUrl && !videoLoading && (
+                   {sceneVideos.length > 0 && (
+                     <div className="mt-6 space-y-4">
+                       <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Cenas Geradas</h3>
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                         {sceneVideos.map((scene, idx) => (
+                           <div key={idx} className="bg-black border border-zinc-800 rounded-xl overflow-hidden flex flex-col">
+                             <div className="p-3 bg-zinc-900 border-b border-zinc-800">
+                               <span className="text-xs font-bold text-yellow-500">Cena {idx + 1}</span>
+                               <p className="text-xs text-zinc-400 mt-1 line-clamp-2" title={scene.prompt}>{scene.prompt}</p>
+                             </div>
+                             <div className="relative aspect-[9/16] bg-zinc-900 flex items-center justify-center">
+                               {scene.loading ? (
+                                 <div className="flex flex-col items-center gap-2">
+                                   <Loader2 className="w-6 h-6 text-yellow-500 animate-spin" />
+                                   <span className="text-xs text-zinc-500">Gerando vídeo...</span>
+                                 </div>
+                               ) : scene.error ? (
+                                 <div className="p-4 text-center text-xs text-red-400">
+                                   {scene.error}
+                                 </div>
+                               ) : scene.url ? (
+                                 <>
+                                   <video src={scene.url} controls autoPlay loop className="w-full h-full object-cover" />
+                                   <a 
+                                     href={scene.url} 
+                                     download={`cena-${idx + 1}-${Date.now()}.mp4`}
+                                     className="absolute bottom-2 right-2 p-2 bg-black/50 hover:bg-black/80 text-white rounded-lg backdrop-blur-sm transition-colors"
+                                     title="Baixar Cena"
+                                   >
+                                     <Download className="w-4 h-4" />
+                                   </a>
+                                 </>
+                               ) : null}
+                             </div>
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                   )}
+                 </div>
+               ) : (
+                 <ImageDisplay 
+                   ref={imageDisplayRef}
+                   imageUrl={imageUrl} 
+                   loading={loading} 
+                   error={error} 
+                   outputFormat={outputFormat}
+                   transparentBackground={transparentBackground}
+                   aspectRatio={aspectRatio}
+                   generationTime={generationTime}
+                 />
+               )}
+
+               {imageUrl && !videoLoading && !scriptResult && (
                  <div className="space-y-3">
                    <div className="flex items-center justify-between">
                       <label className="text-xs text-zinc-400 font-medium uppercase tracking-wider">Formato do Vídeo</label>
@@ -439,15 +867,37 @@ const Generator: React.FC = () => {
                    <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <label className="text-xs text-zinc-400 font-medium uppercase tracking-wider">Roteiro do Vídeo (Opcional)</label>
-                        <button
-                          onClick={handleGenerateVideoPrompt}
-                          disabled={generatingVideoPrompt || videoLoading}
-                          className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 border border-yellow-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Gerar prompt profissional com IA"
-                        >
-                          {generatingVideoPrompt ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                          Gerar Prompt Profissional
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {videoUrl && (
+                            <button
+                              onClick={handleGrabLastFrame}
+                              disabled={generatingVideoPrompt || videoLoading}
+                              className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 border border-blue-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Pegar último frame para nova cena"
+                            >
+                              <Sparkles className="w-3 h-3" />
+                              Continuar Cena
+                            </button>
+                          )}
+                          <button
+                            onClick={handleGenerateVideoKwai}
+                            disabled={generatingVideoPrompt || videoLoading}
+                            className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FF6B00]/10 text-[#FF6B00] hover:bg-[#FF6B00]/20 border border-[#FF6B00]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Gerar Vídeo Kwai com IA"
+                          >
+                            {generatingVideoPrompt ? <Loader2 className="w-3 h-3 animate-spin" /> : <Film className="w-3 h-3" />}
+                            GERAR VÍDEO KWAI
+                          </button>
+                          <button
+                            onClick={handleGenerateVideoPrompt}
+                            disabled={generatingVideoPrompt || videoLoading}
+                            className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 border border-yellow-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Gerar prompt profissional com IA"
+                          >
+                            {generatingVideoPrompt ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                            Gerar Prompt Profissional
+                          </button>
+                        </div>
                       </div>
                       <textarea
                         value={videoScript}
@@ -477,7 +927,14 @@ const Generator: React.FC = () => {
 
                {videoUrl && (
                  <div className="mt-4 space-y-4">
-                   <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Intro de Vídeo</h3>
+                   <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                    VÍDEO GERADO
+                    {videoGenerationTime !== null && videoUrl && (
+                      <span className="text-xs text-blue-500 lowercase font-normal">
+                        (gerado em {Math.floor(videoGenerationTime / 60)}m {videoGenerationTime % 60}s)
+                      </span>
+                    )}
+                  </h3>
                    <div className={`group relative w-full rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/10 bg-black ${
                      videoAspectRatio === '1:1' ? 'aspect-square' : 
                      videoAspectRatio === '16:9' ? 'aspect-video' : 
@@ -514,7 +971,18 @@ const Generator: React.FC = () => {
                      )}
 
                      {/* Sticky Download Button - Always Visible */}
-                     <div className="absolute bottom-4 right-4 z-30">
+                     <div className="absolute bottom-4 right-4 z-30 flex items-center gap-2">
+                        <button 
+                          onClick={() => {
+                            const text = encodeURIComponent(`Confira o vídeo que eu gerei na ConexTV!`);
+                            window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+                          }}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-green-500 text-white font-semibold rounded-full hover:bg-green-600 transition-colors shadow-lg shadow-black/50"
+                          title="Compartilhar no WhatsApp"
+                        >
+                          <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                          Compartilhar
+                        </button>
                         <a 
                           href={videoUrl} 
                           download={`conextv-intro-${Date.now()}.mp4`}
@@ -545,8 +1013,10 @@ const Generator: React.FC = () => {
                </div>
             </div>
           </div>
+          </div>
+        )}
 
-          {/* History Section */}
+        {/* History Section */}
           {history.length > 0 && (
             <div className="lg:col-span-12 mt-8 border-t border-white/5 pt-8">
               <div className="flex items-center justify-between mb-6">
@@ -576,14 +1046,38 @@ const Generator: React.FC = () => {
                       <span className="text-[10px] uppercase tracking-wider font-bold text-zinc-400 bg-black/50 px-2 py-1 rounded-full">
                         {item.type === 'video' ? 'Vídeo' : 'Imagem'}
                       </span>
-                      <a 
-                        href={item.url} 
-                        download={`conextv-${item.type}-${item.timestamp}.${item.type === 'video' ? 'mp4' : 'png'}`}
-                        className="p-2 bg-white text-black rounded-full hover:scale-110 transition-transform"
-                        title="Baixar"
-                      >
-                        <Download className="w-4 h-4" />
-                      </a>
+                      <div className="flex gap-2">
+                        <a 
+                          href={item.url} 
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 bg-zinc-800 text-white rounded-full hover:bg-zinc-700 hover:scale-110 transition-all"
+                          title="Visualizar"
+                        >
+                          <ImageIcon className="w-4 h-4" />
+                        </a>
+                        <a 
+                          href={item.url} 
+                          download={`conextv-${item.type}-${item.timestamp}.${item.type === 'video' ? 'mp4' : 'png'}`}
+                          className="p-2 bg-white text-black rounded-full hover:scale-110 transition-transform"
+                          title="Baixar"
+                        >
+                          <Download className="w-4 h-4" />
+                        </a>
+                        {item.type === 'image' && (
+                          <button
+                            onClick={() => {
+                              setImageUrl(item.url);
+                              setPrompt(item.prompt);
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                            className="p-2 bg-yellow-500 text-black rounded-full hover:bg-yellow-400 hover:scale-110 transition-all"
+                            title="Criar Vídeo a partir desta Imagem"
+                          >
+                            <Film className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                       <div className="absolute bottom-2 left-2 right-2 text-center">
                          <p className="text-[10px] text-zinc-400 truncate w-full">{new Date(item.timestamp).toLocaleTimeString()}</p>
                       </div>
@@ -604,7 +1098,6 @@ const Generator: React.FC = () => {
             <FAQ />
           </div>
 
-        </div>
       </main>
 
       <footer className="w-full border-t border-white/5 bg-black/50 backdrop-blur-xl py-6 mt-auto">

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { User, Save, ArrowLeft, Mail, Phone, Lock, AlertTriangle } from 'lucide-react';
+import WhatsAppConnection from '../components/WhatsAppConnection';
 
 const Profile: React.FC = () => {
   const { user, updateUser, changePassword } = useAuth();
@@ -174,6 +175,12 @@ const Profile: React.FC = () => {
             </div>
           )}
         </form>
+
+        {!isSetupMode && (
+          <div className="mt-8 pt-8 border-t border-zinc-800">
+            <WhatsAppConnection />
+          </div>
+        )}
       </div>
     </div>
   );

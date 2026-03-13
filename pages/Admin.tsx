@@ -1,13 +1,58 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth, User, PlanType, MessageTemplate } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Users, CreditCard, Activity, Search, Edit2, Trash2, CheckCircle, XCircle, Save, MessageSquare, Send, Plus, Copy, LayoutDashboard, Settings, UserCog, Megaphone, Image as ImageIcon, ExternalLink } from 'lucide-react';
+import { Users, CreditCard, Activity, Search, Edit2, Trash2, CheckCircle, XCircle, Save, MessageSquare, Send, Plus, Copy, LayoutDashboard, Settings, UserCog, Megaphone, Image as ImageIcon, ExternalLink, Link } from 'lucide-react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { encryptData, decryptData } from '../services/evolutionService';
+import WhatsAppConnection from '../components/WhatsAppConnection';
 
 const Admin: React.FC = () => {
   const { users, updateUserStatus, updateUser, deleteUser, plans, updatePlan, templates, saveTemplate, deleteTemplate, generations } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'marketing' | 'generations'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'marketing' | 'generations' | 'integrations'>('dashboard');
   const navigate = useNavigate();
+
+  // Evolution API State
+  const [evolutionUrl, setEvolutionUrl] = useState('');
+  const [evolutionKey, setEvolutionKey] = useState('');
+  const [savingEvolution, setSavingEvolution] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === 'integrations') {
+      const fetchSettings = async () => {
+        try {
+          const docRef = doc(db, 'settings', 'evolution');
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setEvolutionUrl(decryptData(data.url || ''));
+            setEvolutionKey(decryptData(data.apiKey || ''));
+          }
+        } catch (error) {
+          console.error("Error fetching evolution settings:", error);
+        }
+      };
+      fetchSettings();
+    }
+  }, [activeTab]);
+
+  const handleSaveEvolution = async () => {
+    setSavingEvolution(true);
+    try {
+      await setDoc(doc(db, 'settings', 'evolution'), {
+        url: encryptData(evolutionUrl),
+        apiKey: encryptData(evolutionKey),
+        updatedAt: new Date().toISOString()
+      });
+      alert('Configurações da Evolution API salvas com sucesso!');
+    } catch (error) {
+      console.error("Error saving evolution settings:", error);
+      alert('Erro ao salvar configurações.');
+    } finally {
+      setSavingEvolution(false);
+    }
+  };
 
   // Activation State
   const [activatingUser, setActivatingUser] = useState<User | null>(null);
@@ -210,7 +255,63 @@ const Admin: React.FC = () => {
           <NavTab id="dashboard" label="Dashboard Geral" icon={LayoutDashboard} />
           <NavTab id="marketing" label="Marketing & Envios" icon={Megaphone} />
           <NavTab id="generations" label="Histórico de Gerações" icon={ImageIcon} />
+          <NavTab id="integrations" label="Integrações API" icon={Link} />
         </div>
+
+        {/* INTEGRATIONS TAB */}
+        {activeTab === 'integrations' && (
+          <div className="space-y-8 animate-fade-in">
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 backdrop-blur-sm">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center border border-green-500/20">
+                  <Link className="w-5 h-5 text-green-500" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">Evolution API</h2>
+                  <p className="text-zinc-400 text-sm">Configure a API do WhatsApp para campanhas</p>
+                </div>
+              </div>
+
+              <div className="space-y-4 max-w-2xl">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">URL da Evolution API</label>
+                  <input
+                    type="url"
+                    value={evolutionUrl}
+                    onChange={(e) => setEvolutionUrl(e.target.value)}
+                    placeholder="https://api.suaevolution.com"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-green-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">Global API Key</label>
+                  <input
+                    type="password"
+                    value={evolutionKey}
+                    onChange={(e) => setEvolutionKey(e.target.value)}
+                    placeholder="Sua Global API Key"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-green-500/50"
+                  />
+                  <p className="text-xs text-zinc-500 mt-2">
+                    * Estas informações são criptografadas no banco de dados para sua segurança.
+                  </p>
+                </div>
+                <button
+                  onClick={handleSaveEvolution}
+                  disabled={savingEvolution}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  {savingEvolution ? 'Salvando...' : 'Salvar Configurações'}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-8">
+              <WhatsAppConnection />
+            </div>
+          </div>
+        )}
 
         {/* DASHBOARD TAB (Contains Stats, Plans, and Users) */}
         {activeTab === 'dashboard' && (

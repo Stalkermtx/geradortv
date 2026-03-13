@@ -23,7 +23,18 @@ const Login: React.FC = () => {
     }
   }, [searchParams]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleTestLogin = async () => {
+    setEmail('teste@conextv.com');
+    setPassword('teste123'); // Firebase requires 6 chars
+    const success = await login('teste@conextv.com', 'teste123');
+    if (success) {
+      navigate('/subscription');
+    } else {
+      alert('Erro ao iniciar sessão de teste. O usuário pode não estar carregado ainda.');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSuccessMessage('');
     if (!email || !password) return;
@@ -43,7 +54,7 @@ const Login: React.FC = () => {
       // Pass planParam to signup if available
       console.log("Attempting signup with:", { email, name, whatsapp, planParam });
       try {
-        const success = signup(email, password, name, whatsapp, planParam as PlanType | undefined);
+        const success = await signup(email, password, name, whatsapp, planParam as PlanType | undefined);
         
         if (success) {
           console.log("Signup successful");
@@ -66,7 +77,7 @@ const Login: React.FC = () => {
       if (email === 'admin@conextv.com') {
         if (password === 'Elaine1285*add' || password === '10203040') {
           // Pass the password that AuthContext expects for the admin user
-          const success = login(email, '10203040');
+          const success = await login(email, '10203040');
           if (success) {
             navigate('/admin');
           } else {
@@ -76,7 +87,7 @@ const Login: React.FC = () => {
           alert('Senha incorreta para administrador');
         }
       } else {
-        const success = login(email, password);
+        const success = await login(email, password);
         if (success) {
           const normalizedEmail = email.trim().toLowerCase();
           const user = users.find(u => u.email.toLowerCase() === normalizedEmail);
@@ -222,6 +233,16 @@ const Login: React.FC = () => {
             {isSignup ? 'Criar Conta' : 'Entrar'}
             <ArrowRight className="w-4 h-4" />
           </button>
+
+          {!isSignup && (
+            <button
+              type="button"
+              onClick={handleTestLogin}
+              className="w-full py-3 bg-zinc-800 text-white font-bold rounded-lg hover:bg-zinc-700 transition-all border border-zinc-700 flex items-center justify-center gap-2 mt-2"
+            >
+              Acesso de Teste (1 Clique)
+            </button>
+          )}
         </form>
 
         <div className="mt-6 text-center text-xs text-zinc-600">

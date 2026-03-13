@@ -4,6 +4,9 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
+import pkg from 'whatsapp-web.js';
+const { Client, LocalAuth, MessageMedia } = pkg;
+import qrcode from 'qrcode';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,6 +39,17 @@ const defaultData = {
       whatsapp: "65888888888",
       role: "user",
       subscriptionStatus: "inactive",
+      usageCount: 0,
+    },
+    {
+      id: "3",
+      email: "teste@conextv.com",
+      password: "teste",
+      name: "Usuário de Teste",
+      whatsapp: "00000000000",
+      role: "user",
+      subscriptionStatus: "active",
+      planId: "pro",
       usageCount: 0,
     },
   ],
@@ -165,6 +179,190 @@ app.post("/api/data", (req, res) => {
   const newData = req.body;
   writeData(newData);
   res.json({ success: true });
+});
+
+app.get("/api/proxy/games", async (req, res) => {
+  try {
+    const response = await fetch('https://xsender.painelmaster.lol/retornojogosmx.json');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error("Proxy error:", error);
+    res.status(500).json({ error: "Failed to fetch games data" });
+  }
+});
+
+// WhatsApp Client Setup
+let whatsappClient: any = null;
+let qrCodeDataUrl: string | null = null;
+let isWhatsAppConnected = false;
+let isInitializing = false;
+
+const initializeWhatsApp = async () => {
+  if (isInitializing || isWhatsAppConnected) return;
+  isInitializing = true;
+  console.log('Initializing WhatsApp client...');
+
+  try {
+    whatsappClient = new Client({
+      authStrategy: new LocalAuth({ clientId: 'conextv-client' }),
+      puppeteer: {
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-accelerated-2d-canvas', '--no-first-run', '--no-zygote', '--single-process', '--disable-gpu'],
+        headless: true,
+      }
+    });
+
+    whatsappClient.on('qr', async (qr: string) => {
+      console.log('QR Code received');
+      try {
+        qrCodeDataUrl = await qrcode.toDataURL(qr);
+      } catch (err) {
+        console.error('Error generating QR code:', err);
+      }
+    });
+
+    whatsappClient.on('ready', () => {
+      console.log('WhatsApp client is ready!');
+      isWhatsAppConnected = true;
+      qrCodeDataUrl = null;
+    });
+
+    whatsappClient.on('authenticated', () => {
+      console.log('WhatsApp authenticated');
+    });
+
+    whatsappClient.on('auth_failure', (msg: string) => {
+      console.error('WhatsApp authentication failure:', msg);
+      isWhatsAppConnected = false;
+      qrCodeDataUrl = null;
+    });
+
+    whatsappClient.on('disconnected', (reason: string) => {
+      console.log('WhatsApp disconnected:', reason);
+      isWhatsAppConnected = false;
+      qrCodeDataUrl = null;
+      // Re-initialize on disconnect
+      setTimeout(initializeWhatsApp, 5000);
+    });
+
+    await whatsappClient.initialize();
+  } catch (error) {
+    console.error('Failed to initialize WhatsApp:', error);
+    isWhatsAppConnected = false;
+    qrCodeDataUrl = null;
+  } finally {
+    isInitializing = false;
+  }
+};
+
+// Start initialization
+initializeWhatsApp();
+
+// API Routes
+app.get('/api/whatsapp/status', (req, res) => {
+  res.json({
+    connected: isWhatsAppConnected,
+    qrCode: qrCodeDataUrl
+  });
+});
+
+app.post('/api/whatsapp/logout', async (req, res) => {
+  try {
+    if (whatsappClient) {
+      await whatsappClient.logout();
+      await whatsappClient.destroy();
+    }
+    isWhatsAppConnected = false;
+    qrCodeDataUrl = null;
+    whatsappClient = null;
+    
+    // Re-initialize
+    initializeWhatsApp();
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error logging out:', error);
+    res.status(500).json({ error: 'Failed to logout' });
+  }
+});
+
+app.get('/api/whatsapp/contacts', async (req, res) => {
+  if (!isWhatsAppConnected || !whatsappClient) {
+    return res.status(400).json({ error: 'WhatsApp not connected' });
+  }
+  try {
+    const contacts = await whatsappClient.getContacts();
+    // Filter out groups and broadcast lists
+    const filteredContacts = contacts.filter((c: any) => c.isUser && !c.isGroup && !c.isMe);
+    res.json(filteredContacts.map((c: any) => ({
+      id: c.id._serialized,
+      name: c.name || c.pushname || c.number,
+      number: c.number
+    })));
+  } catch (error) {
+    console.error('Error fetching contacts:', error);
+    res.status(500).json({ error: 'Failed to fetch contacts' });
+  }
+});
+
+app.get('/api/whatsapp/groups', async (req, res) => {
+  if (!isWhatsAppConnected || !whatsappClient) {
+    return res.status(400).json({ error: 'WhatsApp not connected' });
+  }
+  try {
+    const chats = await whatsappClient.getChats();
+    const groups = chats.filter((c: any) => c.isGroup);
+    res.json(groups.map((g: any) => ({
+      id: g.id._serialized,
+      name: g.name
+    })));
+  } catch (error) {
+    console.error('Error fetching groups:', error);
+    res.status(500).json({ error: 'Failed to fetch groups' });
+  }
+});
+
+app.post('/api/whatsapp/send', async (req, res) => {
+  if (!isWhatsAppConnected || !whatsappClient) {
+    return res.status(400).json({ error: 'WhatsApp not connected' });
+  }
+
+  const { targetId, message, mediaUrl, mediaType } = req.body;
+
+  if (!targetId) {
+    return res.status(400).json({ error: 'Target ID is required' });
+  }
+
+  try {
+    if (mediaUrl) {
+      // Create MessageMedia object
+      let media;
+      if (mediaUrl.startsWith('data:')) {
+        // Handle base64
+        const parts = mediaUrl.split(';');
+        const mimeType = parts[0].split(':')[1];
+        const data = parts[1].split(',')[1];
+        media = new MessageMedia(mimeType, data, 'media');
+      } else {
+        // Handle URL
+        media = await MessageMedia.fromUrl(mediaUrl);
+      }
+      
+      await whatsappClient.sendMessage(targetId, media, { caption: message || '' });
+    } else if (message) {
+      await whatsappClient.sendMessage(targetId, message);
+    } else {
+      return res.status(400).json({ error: 'Message or media is required' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error sending message:', error);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
 });
 
 async function startServer() {

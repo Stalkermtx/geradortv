@@ -14,7 +14,7 @@ const Features: React.FC = () => {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
           {/* Nano Banana Card */}
           <div className="bg-[#1a1500] border border-yellow-900/30 rounded-2xl p-8 flex flex-col space-y-6 hover:border-yellow-500/50 transition-colors">
             <div className="w-12 h-12 rounded-xl bg-yellow-500 flex items-center justify-center">
@@ -64,6 +64,31 @@ const Features: React.FC = () => {
               ))}
             </ul>
           </div>
+
+          {/* Real Vision Card */}
+          <div className="bg-[#0b1a1a] border border-emerald-900/30 rounded-2xl p-8 flex flex-col space-y-6 hover:border-emerald-500/50 transition-colors">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500 flex items-center justify-center">
+              <Sparkles className="w-6 h-6 text-white fill-current" />
+            </div>
+            <div>
+              <h3 className="text-2xl font-bold text-white mb-2">Editor de Imagem IA Real Vision</h3>
+              <p className="text-zinc-400 text-sm leading-relaxed">
+                Especializado em fotorrealismo, retratos e edição de fotos de alta fidelidade. Perfeito para fotografia de produtos e rostos humanos.
+              </p>
+            </div>
+            <ul className="space-y-3 pt-4">
+              {[
+                'Fotorrealismo impressionante',
+                'Texturas e iluminação precisas',
+                'Ideal para produtos e pessoas'
+              ].map((item, i) => (
+                <li key={i} className="flex items-center gap-2 text-sm text-zinc-300">
+                  <Check className="w-4 h-4 text-emerald-500" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </div>
 
@@ -78,7 +103,7 @@ const Features: React.FC = () => {
             Um Editor de Imagem IA é uma ferramenta criativa poderosa que utiliza inteligência artificial para gerar, transformar e aprimorar imagens. Ao contrário dos editores de imagem tradicionais que dependem apenas de ajustes manuais, os editores de imagem com IA usam modelos avançados de aprendizado de máquina para entender e manipular conteúdo visual de forma inteligente. Essas ferramentas podem criar imagens inteiramente novas a partir de descrições de texto, aplicar estilos artísticos, melhorar a qualidade da foto e realizar tarefas de edição complexas que tradicionalmente exigiriam habilidades especializadas.
           </p>
           <p>
-            Nossa plataforma oferece dois modelos de edição de imagem com IA de ponta: Nano Banana para processamento ultra-rápido e resultados econômicos, e Flux Kontext para qualidade premium e controle artístico avançado. Ambos os modelos se destacam na compreensão de prompts em linguagem natural e entradas visuais, permitindo que você dê vida à sua visão criativa com o mínimo de esforço. Seja criando conteúdo para redes sociais, projetando gráficos profissionais ou explorando possibilidades artísticas, nosso Editor de Imagem IA fornece as ferramentas que você precisa.
+            Nossa plataforma oferece três modelos de edição de imagem com IA de ponta: Nano Banana para processamento ultra-rápido e resultados econômicos, Flux Kontext para qualidade premium e controle artístico avançado, e Real Vision para edição de fotos ultra-realista e retratos. Todos os modelos se destacam na compreensão de prompts em linguagem natural e entradas visuais, permitindo que você dê vida à sua visão criativa com o mínimo de esforço. Seja criando conteúdo para redes sociais, projetando gráficos profissionais ou explorando possibilidades artísticas, nosso Editor de Imagem IA fornece as ferramentas que você precisa.
           </p>
         </div>
 
